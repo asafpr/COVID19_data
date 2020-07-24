@@ -10,5 +10,3 @@ ggplot(hosp, aes(date, change_rate)) + geom_point() + geom_smooth(method = "loes
 hosp$week <- week(hosp$date)
 weekly <- group_by(hosp, week) %>% summarise_all(mean) %>% ungroup()
 ggplot(weekly, aes(date, mod_sev))+ geom_point() + geom_smooth(method = "loess", formula = "y ~ x", span=0.3) + theme_bw()
-ggplot(weekly, aes(date, change_rate)) + geom_point() + geom_smooth(method = "loess", formula = "y ~ x") + theme_bw()
-dbl_time <- 70 / (hosp$mod_sev[1:nrow(hosp)-1])
