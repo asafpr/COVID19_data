@@ -6,6 +6,7 @@ pncol <- RColorBrewer::brewer.pal(3, "Set1")
 rescol <- RColorBrewer::brewer.pal(3, "Set2")
 names(rescol) <- c("Abroad", "Contact with confirmed", "Other")
 names(pncol) <- c("Positive", "Negative", "Other")
+# Get the file from: https://data.gov.il/dataset/covid-19/resource/d337959a-020a-4ed3-84f7-fca182292308
 allt <- read_csv("corona_tested_individuals_ver_0048.csv")
 allt$gender <- recode_factor(allt$gender, "נקבה" = "F", "זכר" = "M")
 allt$age_60_and_above <- recode_factor(allt$age_60_and_above, "Yes" = TRUE, "No" = FALSE, .default = NA)
