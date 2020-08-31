@@ -10,7 +10,10 @@ allt <- allt %>% filter(corona_result != "Other")
 
 # Sum the number of new infected daily
 daily <- allt %>% 
-  group_by(test_date, test_indication) %>% summarise(tests = n(), positive = sum(corona_result=="Positive"), head_ache = sum(head_ache), fever = sum(fever), cough = sum(cough), sore_throat = sum(sore_throat), shortness_of_breath = sum(shortness_of_breath)) %>% ungroup()
+  group_by(test_date, test_indication) %>% summarise(tests = n(), positive = sum(corona_result=="Positive"), head_ache = sum(head_ache & corona_result=="Positive"), fever = sum(fever & corona_result=="Positive"), cough = sum(cough & corona_result=="Positive"), sore_throat = sum(sore_throat & corona_result=="Positive"), shortness_of_breath = sum(shortness_of_breath & corona_result=="Positive")) %>% ungroup()
+daily_a <- group_by(daily, test_date) %>% summarise_at(vars(-test_indication), sum) %>% ungroup() %>% pivot_longer(head_ache:shortness_of_breath, names_to = "symptom", values_to = "reported")
+daily$cum_pos <- cumsum(daily$positive)
+ggplot(daily_a, aes(test_date, reported/positive, color=symptom)) + geom_point() + geom_smooth(span=0.2) + theme_bw()
 alld <- group_by(daily, test_date) %>% summarize(positive = sum(positive)) %>% ungroup()
 # Combine the two
 dcomb <- left_join(alld, dash[, c("Date", "New infected")], by = c("test_date" = "Date")) %>% select(test_date, database = positive, dashboard = `New infected`) %>% pivot_longer(cols = -test_date, names_to = "Source", values_to = "infected")
