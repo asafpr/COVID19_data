@@ -6,27 +6,47 @@ output:
 ---
 ```{r plotall}
 library(tidyverse)
+# Read the data from a github repo that keeps the dashborad data
 dash <- read_csv(url("https://raw.githubusercontent.com/dancarmoz/israel_moh_covid_dashboard_data/master/hospitalized_and_infected.csv"))
+# Read the mobility data from Google
 gmob <- read_csv(url("https://www.gstatic.com/covid19/mobility/Global_Mobility_Report.csv"))
+# Filter to keep only Israel data and change the names of the headers
 gmob <- gmob %>% filter(country_region=="Israel", is.na(sub_region_1)) %>% select(date, retail = retail_and_recreation_percent_change_from_baseline, grocery = grocery_and_pharmacy_percent_change_from_baseline, parks = parks_percent_change_from_baseline, transit = transit_stations_percent_change_from_baseline, workplaces = workplaces_percent_change_from_baseline, residential = residential_percent_change_from_baseline)
+# Add the day of week to the table
 gmob <- gmob %>% mutate(weekday = weekdays(gmob$date))
+
+# Initialize a new table with the residuals
 gres <- tibble(date = gmob$date)
+# For each category build a linear model using the day in week (weekday)
 for (category in setdiff(colnames(gmob), c("date", "weekday"))){
+  # The model
   lmout <- lm(as.formula(paste0(category, " ~ weekday")), gmob)
+  # The residuals are without NAs so I have to do this trick to add them back
   newvec <- rep(NA, nrow(gmob))
   newvec[!is.na(gmob[, category])] = lmout$residuals
+  # Write the residuals back to the new table
   gres[, category] <- newvec
 }
+# Pivot longer so I can plot all the activities in the same plot
 greslong <- pivot_longer(gres, -date, names_to = "Category", values_to = "change")
-ggplot(greslong, aes(date, change, color = Category)) + geom_line() + theme_bw()
-gmoblong <- pivot_longer(gmob, c(-date, -weekday), names_to = "Category", values_to = "change")
-ggplot(gmoblong, aes(date, change, color = Category)) + geom_line() + theme_bw()
+ggplot(greslong, aes(date, change, color = Category)) + geom_line() + ggtitle("Changes in activities, adjusted for day of week") + theme_bw()
 
+#Plot the same thing without adjusting for day of week with the raw data
+gmoblong <- pivot_longer(gmob, c(-date, -weekday), names_to = "Category", values_to = "change")
+ggplot(gmoblong, aes(date, change, color = Category)) + geom_line() +ggtitle("Changes in activities") + theme_bw()
+
+# Change the headers in the dashboard data and select relevant columns
+# Add a date which is 8 days before the actual date
 newdash <- dash %>% mutate(infected = `New infected`, date = Date, lastwdate = date-8) %>% select(lastwdate, infected)
+# Join the two tables
 gnew <- left_join(gmob, newdash, by = c("date" = "lastwdate"))
+# Remove weekends from the table and filter for Jun-15 and on
 gnew <- gnew[!(weekdays(gnew$date) %in% c("Friday", "Saturday")) & gnew$date > "2020-06-15",]
-gnewlong <- pivot_longer(gnew, c(-date, -infected, -weekday), names_to = "activity", values_to = "change")
-ggplot(gnewlong, aes(date, change, color = activity)) + geom_line() + geom_line(aes(y=infected/mean(infected, na.rm=T)*100), color='black')
+gnewlong <- pivot_longer(gnew, c(-date, -infected, -weekday), names_to = "Category", values_to = "change")
+# Plot the raw data + infected without weekends
+ggplot(gnewlong, aes(date, change, color = Category)) + geom_line() + geom_line(aes(y=infected/mean(infected, na.rm=T)*100), color='black') + 
+  ggtitle("Changes in activities, excluding weekends. Infected in black is was moved by eight days to the left") + theme_bw()
+# Run a linear model predicting the infected from all the other activities.
 glm <- lm(infected ~ retail + grocery + parks + transit + workplaces + residential, gnew)
-ggplot(gnew, aes(transit, infected)) + geom_point()
+summary(glm)
 ```
