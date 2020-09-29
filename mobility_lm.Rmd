@@ -1,0 +1,32 @@
+---
+title: "R Notebook"
+output:
+  html_document:
+    df_print: paged
+---
+```{r plotall}
+library(tidyverse)
+dash <- read_csv(url("https://raw.githubusercontent.com/dancarmoz/israel_moh_covid_dashboard_data/master/hospitalized_and_infected.csv"))
+gmob <- read_csv(url("https://www.gstatic.com/covid19/mobility/Global_Mobility_Report.csv"))
+gmob <- gmob %>% filter(country_region=="Israel", is.na(sub_region_1)) %>% select(date, retail = retail_and_recreation_percent_change_from_baseline, grocery = grocery_and_pharmacy_percent_change_from_baseline, parks = parks_percent_change_from_baseline, transit = transit_stations_percent_change_from_baseline, workplaces = workplaces_percent_change_from_baseline, residential = residential_percent_change_from_baseline)
+gmob <- gmob %>% mutate(weekday = weekdays(gmob$date))
+gres <- tibble(date = gmob$date)
+for (category in setdiff(colnames(gmob), c("date", "weekday"))){
+  lmout <- lm(as.formula(paste0(category, " ~ weekday")), gmob)
+  newvec <- rep(NA, nrow(gmob))
+  newvec[!is.na(gmob[, category])] = lmout$residuals
+  gres[, category] <- newvec
+}
+greslong <- pivot_longer(gres, -date, names_to = "Category", values_to = "change")
+ggplot(greslong, aes(date, change, color = Category)) + geom_line() + theme_bw()
+gmoblong <- pivot_longer(gmob, c(-date, -weekday), names_to = "Category", values_to = "change")
+ggplot(gmoblong, aes(date, change, color = Category)) + geom_line() + theme_bw()
+
+newdash <- dash %>% mutate(infected = `New infected`, date = Date, lastwdate = date-8) %>% select(lastwdate, infected)
+gnew <- left_join(gmob, newdash, by = c("date" = "lastwdate"))
+gnew <- gnew[!(weekdays(gnew$date) %in% c("Friday", "Saturday")) & gnew$date > "2020-06-15",]
+gnewlong <- pivot_longer(gnew, c(-date, -infected, -weekday), names_to = "activity", values_to = "change")
+ggplot(gnewlong, aes(date, change, color = activity)) + geom_line() + geom_line(aes(y=infected/mean(infected, na.rm=T)*100), color='black')
+glm <- lm(infected ~ retail + grocery + parks + transit + workplaces + residential, gnew)
+ggplot(gnew, aes(transit, infected)) + geom_point()
+```
