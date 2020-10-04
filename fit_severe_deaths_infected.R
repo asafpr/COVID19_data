@@ -32,6 +32,10 @@ ns2 <-
               day = weekdays(Date),
               deaths = `New deaths`
             ) %>% select(Date, day, severe_new, infected, tests, deaths)
+# Moving average
+n = 7
+ci <- c(rep(0,n), cumsum(ns2$infected))
+c2 <- (ci[(n+1):length(ci)]-ci[1:(length(ci)-n)])/n
 
 # Run loess on infected and tests to smooth the data
 span = 0.2
@@ -39,7 +43,15 @@ ns2$idx <- 1:nrow(ns2)
 infl <- loess(infected ~ idx, ns2, span = span)
 tesl <- loess(tests ~ idx, ns2, span = span)
 ns2 <-
-  ns2 %>% mutate(infected_sm = infl$fitted, tests_sm = tesl$fitted)
+  ns2 %>% mutate(infected_sm = infl$fitted, tests_sm = tesl$fitted, infected_avg = c2)
+# Plot new infected, loess and 7-day average
+print(
+    ggplot(ns2, aes(Date, infected)) + geom_line(linetype="dotted",color = colors[1]) + geom_line(aes(
+      y = infected_sm), linetype = "solid", color = colors[1]
+    ) + geom_line(aes(y=infected_avg), linetype = "dashed", color=colors[1]) + theme_bw() + ggtitle(
+      "New infected vs smoothed new infected"
+    ) 
+  )
 
 # Fit a linear model using new infected to predict severe and death
 for (i in 1:21) {
