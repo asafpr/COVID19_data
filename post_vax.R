@@ -35,6 +35,6 @@ pml$ci_hi <- pml$p+1.96*pml$sigma/sqrt(pml$positive)
 pml %>% ggplot(aes(age_group, p, color=week)) + 
   geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi, width=0.1)) +
   geom_point(size=3) + ggtitle("Hospitalized individuals post Pfizer BNT162b2 1st dose in Israel") + 
-  ylab("Hospitalized/Positives fraction") + 
+  ylab("Hospitalized/Positives ratio") + 
   xlab("Age group") + scale_color_brewer(palette = "Dark2", labels = c("Within 1st week", "Within 2nd week", "Within 3rd week"), name = "Positive result") +
   theme_bw() 
