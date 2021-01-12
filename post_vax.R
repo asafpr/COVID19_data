@@ -13,16 +13,24 @@ pres <- data.frame(age_group = c("16-19", "20-29", "30-39", "40-49", "50-59", "6
 pres$week_1_positive <- round(pres$week_1_tests * pres$week_1_positive_rate / 100)
 pres$week_2_positive <- round(pres$week_2_tests * pres$week_2_positive_rate / 100)
 pres$week_3_positive <- round(pres$week_3_tests * pres$week_3_positive_rate / 100)
-pres$`Week 1 hosp ratio` <- pres$week_1_hospitalized / pres$week_1_positive
-pres$`Week 2 hosp ratio` <- pres$week_2_hospitalized / pres$week_2_positive
-pres$`Week 3 hosp ratio` <- pres$week_3_hospitalized / pres$week_3_positive
 
 
-pl <- pivot_longer(select(pres, age, ends_with("positive"), ends_with("zed")), cols = -age, names_to = "category", values_to = "number")
+pl <- pres %>% filter(age>35) %>% select(age_group, ends_with("positive"), ends_with("zed")) %>% pivot_longer(cols = -age_group, names_to = "category", values_to = "number")
 pl$week <- sapply(strsplit(pl$category, "_"), `[[`, 2)
 pl$measure <- sapply(strsplit(pl$category, "_"), `[[`, 3)
-pml <- pivot_wider(pl, id_cols = c(age, week), names_from = "measure", values_from = "number")
-lmo <- lm(hospitalized ~ age:positive + week:positive , pml)
+pml <- pivot_wider(pl, id_cols = c(age_group, week), names_from = "measure", values_from = "number")
+pml$week <- as.factor(pml$week)
+lmo <- lm(hospitalized ~ 0 + positive:age_group +week:positive , pml)
 summary(lmo)
-pml$age <- as.factor(pml$age)
 pml %>% ggplot(aes(positive, hospitalized)) + geom_point() +geom_smooth(method="lm") + facet_wrap(~age, scales = "free")
+pml$p <- pml$hospitalized/pml$positive
+pml$sigma <- sqrt((pml$p*(1-pml$p))/pml$positive)
+pml$ci_lo <- pml$p-1.96*pml$sigma/sqrt(pml$positive)
+pml$ci_hi <- pml$p+1.96*pml$sigma/sqrt(pml$positive)
+
+pml %>% ggplot(aes(age_group, p, color=week)) + 
+  geom_errorbar(aes(ymin = ci_lo, ymax = ci_hi, width=0.1)) +
+  geom_point(size=3) + ggtitle("Hospitalized individuals post Pfizer BNT162b2 1st dose in Israel") + 
+  ylab("Hospitalized/Positives fraction") + 
+  xlab("Age group") + scale_color_discrete(labels = c("Within 1st week", "Within 2nd week", "Within 3rd week"), name = "Positive result") +
+  theme_bw() 
