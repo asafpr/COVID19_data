@@ -22,7 +22,7 @@ pl <- pivot_longer(select(pres, age, ends_with("positive"), ends_with("zed")), c
 pl$week <- sapply(strsplit(pl$category, "_"), `[[`, 2)
 pl$measure <- sapply(strsplit(pl$category, "_"), `[[`, 3)
 pml <- pivot_wider(pl, id_cols = c(age, week), names_from = "measure", values_from = "number")
-lmo <- lm(hospitalized ~ age * week * positive, pml)
+lmo <- lm(hospitalized ~ age:positive + week:positive , pml)
 summary(lmo)
 pml$age <- as.factor(pml$age)
 pml %>% ggplot(aes(positive, hospitalized)) + geom_point() +geom_smooth(method="lm") + facet_wrap(~age, scales = "free")
