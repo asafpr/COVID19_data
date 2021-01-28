@@ -1,0 +1,49 @@
+---
+title: "Clustering regions"
+output:
+  html_document:
+    df_print: paged
+---
+
+This notebook takes Rt estimates computed by covid-model for regions in Israel and try to identify
+pockets of a highly spreading variant. In the first step, all regions are clustered using Rt data from mid-March to mid-November. Then the patterns of Rt are being compared inside each cluster to find different patterns and try to explain differences using a model of a variant takeover.
+
+```{r readdata}
+library(tidyverse)
+set.seed(113)
+base = "https://raw.githubusercontent.com/asafpr/covid-model/cities/notebooks/results_unnormalized_out_" #626.csv"
+regions_list = c("111","112","211","212","213","221","222","231","232","233","234","235","237","241","242","243","245","246","291","292","311","321","323","324","411","412","421","422","431","432","441","442","511","512","513","611","612","613","614","621","622","623","625","626","73","74","76")
+allmeans = NULL
+for (r in regions_list){
+  tmpt <- read_csv(url(paste0(base, r, ".csv")))
+  colnames(tmpt)[2] <- r
+  tmpt <- tmpt[,1:2]
+  if (is.null(allmeans)){
+    allmeans <- tmpt
+  }else{
+    allmeans <- full_join(allmeans, tmpt)
+  }
+}
+# Clean regions with too many NAs
+allmeans <- allmeans[1:(nrow(allmeans)-10), colSums(is.na(allmeans))<60]
+mlong <- pivot_longer(allmeans, -date, names_to = "region", values_to = "Rt")
+rnames <- read_csv("region_names.csv", col_types = cols(
+  Region = col_character(),
+  Region_name = col_character()
+))
+mlong <- left_join(mlong, rnames, by = c("region" = "Region"))
+ggplot(mlong, aes(date, Rt, color=Region_name)) + geom_hline(yintercept=1, color="gray40")   + geom_line() + scale_color_discrete(name = "רוזא",labels = sapply(mlong$Region_name, function(x) paste0(rev(strsplit(x, "")[[1]]), collapse=""))) + theme_minimal()
+```
+
+```{r clustering}
+clustmat <- filter(allmeans, between(date, as.Date("2020-07-15"), as.Date("2020-11-15"))) %>% column_to_rownames(var = "date") %>% as.matrix()  %>% base::t()
+clustmat[is.na(clustmat)] = 1
+nclust = 8
+rclust <- kmeans(clustmat, nclust, iter.max = 30)
+mlong2 <- left_join(mlong, as_tibble(rclust$cluster, rownames = "region") %>% rename(cluster=value), by="region")
+ggplot(mlong2, aes(date, Rt, color=Region_name)) + geom_line() + facet_wrap(~cluster)
+for (i in 1:nclust){
+print(mlong2 %>% filter(cluster == i) %>% ggplot(aes(date, Rt, color=Region_name))+ geom_hline(yintercept=1, color="gray40")  + geom_line() + scale_color_discrete(name = "רוזא", labels = sapply(mlong2$Region_name[mlong2$cluster==i], function(x) paste0(rev(strsplit(x, "")[[1]]), collapse=""))) + theme_minimal())
+}
+as_tibble(rclust$cluster, rownames = "region") %>% rename(cluster=value) %>% left_join(rnames, by=c("region"="Region")) %>% arrange(cluster)
+```
