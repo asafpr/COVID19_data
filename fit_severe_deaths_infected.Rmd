@@ -131,4 +131,19 @@ i=5
   print(summary(lmout))
   print(summary(lmopt))
   lrtest(lmout, lmopt)
+  
+  
+  i=10
+ nt <-
+    ns2 %>% mutate(severe_new = c(severe_new[-1:-i], rep(NA, i)),
+                   deaths = c(deaths[-1:-i], rep(NA, i)),
+                   newave = Date > as.Date("2021-05-01")) %>%
+   filter(Date > as.Date("2020-06-01"))
+  # lm for severe. intercept is forced to be 0
+  lmout <- lm(deaths ~ 0 + infected_sm:newave, nt)
+  lmopt <- lm(deaths ~ 0 + infected_sm, nt)
+  print(i)
+  print(summary(lmout))
+  print(summary(lmopt))
+  lrtest(lmout, lmopt)
 ```
