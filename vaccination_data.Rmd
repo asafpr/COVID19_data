@@ -1,0 +1,39 @@
+---
+title: "Vaccinated by age"
+output: html_notebook
+---
+
+```{r getdata}
+library(tidyverse)
+library(RColorBrewer)
+vaxfull <- read_csv("vaccinated-per-day-2021-07-13.csv", na = "<15")
+vaxfull[is.na(vaxfull)] <- 7.5
+
+# Group by age group and compute cumsum
+vaxfull <- vaxfull %>% group_by(age_group) %>% mutate(cum_second_dose = cumsum(second_dose)) %>% ungroup()
+
+# Shift the date to one week after second dose
+vaxfull <- vaxfull %>% mutate(effDate = VaccinationDate + 7)
+
+# Pivot to longer with age group as columns, effDate as index and cum_second_dose as values
+prots <- pivot_wider(vaxfull, id_cols = effDate, names_from = age_group, values_from = cum_second_dose)
+prots <- mutate(prots, above_60 = (`60-69`+`70-79`+`80-89`+`90+`) / (`20-29`+`30-39`+`40-49`+`50-59`+`60-69`+`70-79`+`80-89`+`90+`))
+ggplot(prots, aes(effDate, above_60)) + geom_point()
+```
+
+```{r hosp}
+library(readxl)
+hosp_data <- read_excel("corona_hospitalization_ver_00304.xlsx", col_names = c("Date", "Hospitalized_current", "Hospitalized_Female_perc", "Hospitalized_average_age", "Hospitalized_SD_age", "Ventilated_current", "Ventilated_Female_perc", "Ventilated_average_age", "Ventilated_SD_age", "Good_condition_current", "Good_condition_Female_perc", "Good_condition_average_age", "Good_condition_SD_age", "Fair_condition_current", "Fair_condition_Female_perc", "Fair_condition_average_age", "Fair_condition_SD_age", "Severe_condition_current", "Severe_condition_Female_perc", "Severe_condition_average_age", "Severe_condition_SD_age", "Severe_condition_total"), skip = 1, na = "<15")
+
+# Plot the trend
+ggplot(hosp_data, aes(Date, Hospitalized_current, color = Hospitalized_average_age)) + geom_line() + theme_minimal() +scale_color_gradient(low="green", high="purple")
+
+# Plot the average age and the percentage of people above 60 vaccinated out of total population over 20
+hosp_data <- left_join(hosp_data, select(prots, effDate, above_60), by = c("Date"="effDate"))
+hosp_data <- mutate(hosp_data, 
+                    severe_age_upper = Severe_condition_average_age + (Severe_condition_SD_age/sqrt(Severe_condition_current))*1.962,
+                    severe_age_lower = Severe_condition_average_age - (Severe_condition_SD_age/sqrt(Severe_condition_current))*1.962,
+                    )
+pal <- RColorBrewer::brewer.pal(2, name = "Dark2")
+ggplot(hosp_data, aes(Date, Severe_condition_average_age, ymax=severe_age_upper, ymin=severe_age_lower)) + geom_smooth(aes(color=pal[1]), size=1, method = "loess", se = F, n=100, span=0.05) + geom_ribbon(alpha=0.1) + geom_smooth(aes(y=above_60*100, color = pal[2]), size=1, method="loess", span=0.1, se=F) + ylab("Age/Percent") + scale_color_manual(name = "Legend", values = pal[1:2], labels=c("Severe condition average age", "60+ of total vaccinated (%)")) + theme_minimal()
+```
