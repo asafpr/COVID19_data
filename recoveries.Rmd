@@ -1,0 +1,24 @@
+---
+title: "Recovery time"
+output: html_notebook
+---
+
+```{r}
+library(tidyverse)
+rec <- read_csv("corona_recovered_ver_00147.csv") %>% rename(RecTime = days_between_pos_and_recovery)
+rec$age_group[rec$age_group=="?? ????"] <- NA
+rec$PID <- c(1:nrow(rec))
+nrec <- rec[c(300000:nrow(rec)),] %>% filter(!is.na(age_group))
+
+# IQR to remove outliers
+ggplot(nrec%>%filter(RecTime<10), aes(RecTime)) + geom_histogram()
+iqr <- quantile(nrec$RecTime, c(0.25,0.75), na.rm = T)
+iqint <- iqr[2]-iqr[1]
+nrec <- nrec %>% filter(RecTime > iqr[1]-iqint*1.5, RecTime < iqr[2]+iqint*1.5)
+ggplot(nrec, aes(PID, RecTime)) + geom_point()
+ggplot(nrec, aes(age_group, RecTime, color=gender)) + geom_violin() + facet_wrap(~test_indication)
+
+nrec_60p <- nrec %>% filter(age_group=="60+") 
+ggplot(nrec, aes(PID, as.numeric(RecTime>15), color=age_group)) + geom_smooth() + facet_wrap(~test_indication)
+
+```

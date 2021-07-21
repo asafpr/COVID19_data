@@ -6,7 +6,10 @@ output: html_notebook
 ```{r runall}
 library(tidyverse)
 library(RColorBrewer)
-colors <- brewer.pal(3, "Dark2")
+library(readxl)
+colors <- brewer.pal(4, "Dark2")
+
+# Read severe new cases from my git repo, not used anymore
 ns <-
   read_csv(
     url(
@@ -19,25 +22,31 @@ dash <-
       "https://raw.githubusercontent.com/dancarmoz/israel_moh_covid_dashboard_data/master/hospitalized_and_infected.csv"
     )
   )
-
 ns <- ns %>% filter(!is.na(severe_new))
+# Read hospitalization data for new severe cases
+hosp_data <- read_excel("corona_hospitalization_ver_00314.xlsx", col_names = c("Date", "Hospitalized_current", "Hospitalized_Female_perc", "Hospitalized_average_age", "Hospitalized_SD_age", "Ventilated_current", "Ventilated_Female_perc", "Ventilated_average_age", "Ventilated_SD_age", "Good_condition_current", "Good_condition_Female_perc", "Good_condition_average_age", "Good_condition_SD_age", "Fair_condition_current", "Fair_condition_Female_perc", "Fair_condition_average_age", "Fair_condition_SD_age", "Severe_condition_current", "Severe_condition_Female_perc", "Severe_condition_average_age", "Severe_condition_SD_age", "Severe_condition_total"), skip = 1, na = "<15")
+hosp_data$Date <- as.Date(hosp_data$Date)
+
+hosp_data <- mutate(hosp_data, severe_new = Severe_condition_total - lag(Severe_condition_total, 1))
 
 # Join the new severe with the dashboard data
 ns2 <-
-  left_join(ns,
+  left_join(select(hosp_data, Date, severe_new),
             select(
               dash,
               Date,
               `New infected`,
               `Tests for idenitifaction`,
-              `New deaths`
+              `New deaths`,
+              `New hosptialized`
             ),
             by = "Date") %>% mutate(
               infected = `New infected`,
               tests = `Tests for idenitifaction`,
               day = weekdays(Date),
-              deaths = `New deaths`
-            ) %>% select(Date, day, severe_new, infected, tests, deaths)
+              deaths = `New deaths`,
+              hospitalized = `New hosptialized`
+            ) %>% select(Date, day, severe_new, infected, tests, deaths, hospitalized)
 # Moving average
 n = 7
 ci <- c(rep(0,n), cumsum(ns2$infected))
@@ -64,7 +73,8 @@ for (i in 1:21) {
   # Generate a lag in severe and deaths
   nt <-
     ns2 %>% mutate(severe_new = c(severe_new[-1:-i], rep(NA, i)),
-                   deaths = c(deaths[-1:-i], rep(NA, i)))
+                   deaths = c(deaths[-1:-i], rep(NA, i)),
+                   hospitalized = c(hospitalized[-1:-i], rep(NA,i)))
   # lm for severe. intercept is forced to be 0
   lmout <- lm(severe_new ~ 0 + infected_sm, nt)
   print(i)
@@ -89,6 +99,7 @@ for (i in 1:21) {
       values = c(colors[1], colors[2])
     )
   )
+  print(ggplot(nt, aes(Date, severe_new/(infected_sm+1))) + geom_smooth(method="loess", span="0.1"))
   
   # lm for deaths
   lmoutd <- lm(deaths ~ 0 + infected_sm, nt)
@@ -112,6 +123,32 @@ for (i in 1:21) {
       values = c(colors[1], colors[3])
     )
   )
+  
+  # lm for hospitalized. intercept is forced to be 0
+  lmout <- lm(hospitalized ~ 0 + infected_sm, nt)
+  print(i)
+  print(summary(lmout))
+  # Plot the lagged severe vs infected
+  print(ggplot(nt, aes(hospitalized, infected_sm)) + geom_point())
+  # Main plot - plot the
+  print(
+    ggplot(nt, aes(Date, hospitalized)) + geom_line(aes(color = colors[4])) + geom_line(aes(
+      y = infected_sm * lmout$coefficients[1], color = colors[1]
+    )) + scale_y_continuous(
+      "New hospitalized",
+      sec.axis = sec_axis( ~ . / lmout$coefficients[1], name = "New infected")
+    ) + theme_bw() + ggtitle(
+      bquote("New hospitalized cases vs new infecetd," ~ .(i) ~ "days lagging"),
+      subtitle = bquote(
+        R ^ 2 == .(summary(lmout)$r.squared) ~ "," ~ beta == .(lmout$coefficients[1])
+      )
+    ) + scale_color_manual(
+      name = "",
+      labels = c("infected", "hospitalized"),
+      values = c(colors[1], colors[4])
+    )
+  )
+  
 }
 
 ```
@@ -146,4 +183,103 @@ i=5
   print(summary(lmout))
   print(summary(lmopt))
   lrtest(lmout, lmopt)
+```
+
+
+```{r ages}
+# Read cases numbers
+cases <- read_csv("corona_age_and_gender_ver_00118.csv", na = "<15")
+cases$gender[cases$gender=="זכר"] = "M"
+cases$gender[cases$gender=="נקבה"] = "F"
+cases$gender[cases$gender=="לא ידוע"] = "U"
+cases <- replace_na(cases, list(weekly_tests_num = 7.5, weekly_cases = 7.5, weekly_deceased = 7.5))
+# Pivot the weekly cases of all genders to wider
+cases_p <- group_by(cases, first_week_day, age_group) %>% summarize(weekly_cases = sum(weekly_cases)) %>% ungroup() %>% pivot_wider(id_cols = first_week_day, names_from = age_group, values_from = weekly_cases)
+# Add new severe cases to the week
+hosp_data$first_week_day <- as.Date(cut(hosp_data$Date, c(cases_p$first_week_day, as.Date(cases_p$first_week_day[nrow(cases_p)]+7))))
+
+cases_p <- left_join(cases_p, select(hosp_data, first_week_day, severe_new) %>% group_by(first_week_day) %>% summarise_all(sum) %>% ungroup())
+cases_p$lag_severe <- lead(cases_p$severe_new, 1)
+cases_p$above_60 <- rowSums(cases_p[,11:15])
+cases_p$above_20 <- rowSums(cases_p[,3:15])
+cases_p$total_cases <- rowSums(cases_p[,2:15])
+cases_p$new_wave <- cases_p$first_week_day >= as.Date("2021-05-01")
+# Linear model using ages
+lms <- lm(lag_severe ~ 0 + above_60 + total_cases, cases_p)
+lmn <- lm(lag_severe ~ 0 + above_60:new_wave + total_cases:new_wave, cases_p)
+lm6 <- lm(lag_severe ~ 0 + above_60, cases_p)
+lm6b <- lm(lag_severe ~ 0 + above_60:new_wave, cases_p)
+cases_p$estimated_severe <- lms$coefficients[1] * cases_p$above_60 + lms$coefficients[2] * cases_p$total_cases
+summary(lm6)
+summary(lm6b)
+summary(lms)
+summary(lmn)
+lrtest(lms, lmn)
+lrtest(lm6, lms)
+lrtest(lm6, lm6b)
+ggplot(cases_p, aes(first_week_day, lag_severe)) + geom_line(aes(color = "orange"),size=1) + geom_line(aes(y=estimated_severe, color = "blue"), size=1) + scale_color_manual(breaks=c("orange", "blue"), values = c("orange", "blue"), labels = c("Weekly severe cases", "Fitted severe cases"), name = "")
+ggplot(cases_p, aes(first_week_day, lag_severe/above_60)) + geom_smooth(method="loess", span=0.1)
+ggplot(cases_p, aes(first_week_day, lag_severe/total_cases)) + geom_smooth(method="loess", span=0.1)
+ggplot(cases_p, aes(first_week_day, above_60/total_cases))  + geom_smooth(method="loess", span=0.1)
+```
+
+```{r above60}
+vaxfull <- read_csv("vaccinated-per-day-2021-07-13.csv", na = "<15")
+vaxfull[is.na(vaxfull)] <- 7.5
+
+# Group by age group and compute cumsum
+vaxfull <- vaxfull %>% group_by(age_group) %>% mutate(cum_second_dose = cumsum(second_dose)) %>% ungroup()
+
+# Shift the date to one week after second dose
+vaxfull <- vaxfull %>% mutate(effDate = VaccinationDate + 7)
+prots <- pivot_wider(vaxfull, id_cols = effDate, names_from = age_group, values_from = cum_second_dose, values_fill = 0)
+prots$first_week_day <- as.Date(cut(prots$effDate, c(cases_p$first_week_day, as.Date(cases_p$first_week_day[nrow(cases_p)]+7))))
+prots <- select(prots, -effDate) %>% group_by(first_week_day) %>% summarize_all(sum) %>% ungroup()
+prots <- mutate(prots, above_60_vax = (`60-69`+`70-79`+`80-89`+`90+`) / (`20-29`+`30-39`+`40-49`+`50-59`+`60-69`+`70-79`+`80-89`+`90+`))
+
+
+# Read demographic data
+ages <- read_csv("Israel-2019.csv")
+# Combine with cases per week
+cases_p <- left_join(cases_p, select(prots, first_week_day, above_60_vax))
+pop_60 <- sum(ages[13:21, c("M", "F")]) / sum(ages[5:21, c("M", "F")])
+ggplot(cases_p, aes(first_week_day, above_60/above_20))  + geom_smooth(aes(color="cases"), method="loess", span=0.1) + geom_line(aes(y=above_60_vax, color = "vaccinated")) + scale_color_manual(labels = c("cases", "vaccinated"), values = c("purple", "magenta"), breaks = c("cases", "vaccinated"), name = "") + geom_rect(ymin = 0, ymax = pop_60, xmin = min(cases_p$first_week_day), xmax = max(cases_p$first_week_day), alpha = 0.01) + xlab("Date") + theme_minimal()
+
+cases <- cases %>% mutate(`Age group` = case_when(age_group == "0-19" ~ "0-19", age_group == "20-24" ~ "20-39", age_group == "25-29" ~ "20-39",
+                                              age_group == "30-34" ~ "20-39", age_group == "35-39" ~ "20-39",
+                                              age_group == "40-44" ~ "40-59", age_group == "45-49" ~ "40-59",
+                                              age_group == "50-54" ~ "40-59", age_group == "55-59" ~ "40-59",
+                                              age_group == "60-64" ~ "60-79", age_group == "65-69" ~ "60-79",
+                                              age_group == "70-74" ~ "60-79", age_group == "75-79" ~ "60-79",
+                                              age_group == "80+" ~ "80+"
+                                              ))
+cases <- filter(cases, !is.na(`Age group`))
+cases_l <- group_by(cases, first_week_day, `Age group`) %>% summarize_at(vars(starts_with("weekly")), sum) %>% ungroup()
+cases_norm <- group_by(cases_l, first_week_day) %>% mutate_at(vars(starts_with("weekly")), function(x) x/sum(x)) %>% ungroup()
+ggplot(cases_norm, aes(first_week_day, weekly_cases, fill = `Age group`)) + geom_area() + theme_minimal() + xlab("Date")+ ylab("Cases distribution")
+ggplot(cases_norm, aes(first_week_day, weekly_tests_num, fill = `Age group`)) + geom_area() + theme_minimal() + xlab("Date") + ylab("Tests distribution")
+```
+
+```{r severe}
+sev <- read_excel("severe_by_age.xlsx")
+sev$first_week_day <- as.Date(cut(as.Date(sev$date), c(cases_p$first_week_day, as.Date(cases_p$first_week_day[nrow(cases_p)]+7))))
+sev_weekly <- group_by(sev, first_week_day) %>% summarise_if(is.numeric, sum) %>% ungroup()
+ors <- c()
+pvs <- c()
+for (n in 1:nrow(sev_weekly)){
+  if (all(!is.na(sev_weekly[n, c(2:3, 6:7)])))
+  {
+    print(sev_weekly$first_week_day[n])
+    r2 = sev_weekly[n, 6:7]
+    colnames(r2) <- colnames(sev_weekly)[2:3]
+    fo <- fisher.test(bind_rows(list(r2, sev_weekly[n, 2:3]-r2)))
+    ors <- c(ors, fo$estimate)
+    pvs <- c(pvs, fo$p.value)
+  }
+  else{
+    ors <- c(ors, NA)
+    pvs <- c(pvs, NA)
+  }
+}
+sev_weekly <- sev_weekly %>% mutate(OR = ors, pvals = pvs)
 ```

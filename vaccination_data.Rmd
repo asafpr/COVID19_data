@@ -23,8 +23,10 @@ ggplot(prots, aes(effDate, above_60)) + geom_point()
 
 ```{r hosp}
 library(readxl)
-hosp_data <- read_excel("corona_hospitalization_ver_00304.xlsx", col_names = c("Date", "Hospitalized_current", "Hospitalized_Female_perc", "Hospitalized_average_age", "Hospitalized_SD_age", "Ventilated_current", "Ventilated_Female_perc", "Ventilated_average_age", "Ventilated_SD_age", "Good_condition_current", "Good_condition_Female_perc", "Good_condition_average_age", "Good_condition_SD_age", "Fair_condition_current", "Fair_condition_Female_perc", "Fair_condition_average_age", "Fair_condition_SD_age", "Severe_condition_current", "Severe_condition_Female_perc", "Severe_condition_average_age", "Severe_condition_SD_age", "Severe_condition_total"), skip = 1, na = "<15")
+hosp_data <- read_excel("corona_hospitalization_ver_00312.xlsx", col_names = c("Date", "Hospitalized_current", "Hospitalized_Female_perc", "Hospitalized_average_age", "Hospitalized_SD_age", "Ventilated_current", "Ventilated_Female_perc", "Ventilated_average_age", "Ventilated_SD_age", "Good_condition_current", "Good_condition_Female_perc", "Good_condition_average_age", "Good_condition_SD_age", "Fair_condition_current", "Fair_condition_Female_perc", "Fair_condition_average_age", "Fair_condition_SD_age", "Severe_condition_current", "Severe_condition_Female_perc", "Severe_condition_average_age", "Severe_condition_SD_age", "Severe_condition_total"), skip = 1, na = "<15")
 
+hosp_data$Date <- as.Date(hosp_data$Date)
+hosp_data <- mutate(hosp_data, new_severe = Severe_condition_total - lag(Severe_condition_total, 1))
 # Plot the trend
 ggplot(hosp_data, aes(Date, Hospitalized_current, color = Hospitalized_average_age)) + geom_line() + theme_minimal() +scale_color_gradient(low="green", high="purple")
 
