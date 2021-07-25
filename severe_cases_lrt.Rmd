@@ -50,11 +50,31 @@ tesl <- loess(tests ~ idx, ns2, span = span)
 ns2 <- ns2 %>% mutate(infected_sm = infl$fitted)
 ```
 We'll add new wave as a factor to the dataframe
-`r ns2$newwave <- ns2$Date > as.Date("2021-05-01")`
+```{r}
+ns2$newwave <- ns2$Date > as.Date("2021-05-01")
+```
+
 Now let's fit the number of severe cases to the number of cases five days earlier (I've tested several values and 5 gives the best fit):
 ```{r lmsimple}
 i = 5
 nt <- ns2 %>% mutate(severe_new = lead(severe_new, 5))
+ print(
+    ggplot(nt, aes(Date, severe_new)) + geom_line(aes(color = colors[2])) + geom_line(aes(
+      y = infected_sm * lmout$coefficients[1], color = colors[1]
+    )) + scale_y_continuous(
+      "New severe",
+      sec.axis = sec_axis( ~ . / lmout$coefficients[1], name = "New infected")
+    ) + theme_bw() + ggtitle(
+      bquote("New severe cases vs new infecetd," ~ .(i) ~ "days lagging"),
+      subtitle = bquote(
+        R ^ 2 == .(summary(lmout)$r.squared) ~ "," ~ beta == .(lmout$coefficients[1])
+      )
+    ) + scale_color_manual(
+      name = "",
+      labels = c("infected", "severe"),
+      values = c(colors[1], colors[2])
+    )
+  )
 # simple linear regression
 lmopt <- lm(severe_new ~ 0 + infected_sm, nt)
 summary(lmopt)
