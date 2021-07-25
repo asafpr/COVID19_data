@@ -1,0 +1,75 @@
+---
+title: "COVID-19 severe ratio"
+output: html_document
+---
+The number of confirmed cases is read from a Dan Carmoz's github page that keeps the MOH dashboard data. The number of severe cases is taken from Data gov (I download it each time, can be accessed through an API), let's generate a data frame that will contain all the desired data
+```{r loaddata}
+library(tidyverse)
+library(RColorBrewer)
+library(readxl)
+colors <- brewer.pal(4, "Dark2")
+
+# Read cases from the dashboard
+dash <-
+  read_csv(
+    url(
+      "https://raw.githubusercontent.com/dancarmoz/israel_moh_covid_dashboard_data/master/hospitalized_and_infected.csv"
+    )
+  )
+
+# Read hospitalization data for new severe cases
+hosp_data <- read_excel("corona_hospitalization_ver_00320.xlsx", col_names = c("Date", "Hospitalized_current", "Hospitalized_Female_perc", "Hospitalized_average_age", "Hospitalized_SD_age", "Ventilated_current", "Ventilated_Female_perc", "Ventilated_average_age", "Ventilated_SD_age", "Good_condition_current", "Good_condition_Female_perc", "Good_condition_average_age", "Good_condition_SD_age", "Fair_condition_current", "Fair_condition_Female_perc", "Fair_condition_average_age", "Fair_condition_SD_age", "Severe_condition_current", "Severe_condition_Female_perc", "Severe_condition_average_age", "Severe_condition_SD_age", "Severe_condition_total"), skip = 1, na = "<15")
+hosp_data$Date <- as.Date(hosp_data$Date)
+
+hosp_data <- mutate(hosp_data, severe_new = Severe_condition_total - lag(Severe_condition_total, 1))
+
+# Join the new severe with the dashboard data
+ns2 <-
+  left_join(select(hosp_data, Date, severe_new),
+            select(
+              dash,
+              Date,
+              `New infected`,
+              `Tests for idenitifaction`,
+              `New deaths`,
+              `New hosptialized`
+            ),
+            by = "Date") %>% mutate(
+              infected = `New infected`,
+              tests = `Tests for idenitifaction`,
+              day = weekdays(Date),
+              deaths = `New deaths`,
+              hospitalized = `New hosptialized`
+            ) %>% select(Date, day, severe_new, infected, tests, deaths, hospitalized)
+
+# Add a smoothed value of the number of cases using Loess (superior to moving average in my experience)
+span = 0.2
+ns2$idx <- 1:nrow(ns2)
+infl <- loess(infected ~ idx, ns2, span = span)
+tesl <- loess(tests ~ idx, ns2, span = span)
+ns2 <- ns2 %>% mutate(infected_sm = infl$fitted)
+```
+We'll add new wave as a factor to the dataframe
+`r ns2$newwave <- ns2$Date > as.Date("2021-05-01")`
+Now let's fit the number of severe cases to the number of cases five days earlier (I've tested several values and 5 gives the best fit):
+```{r lmsimple}
+i = 5
+nt <- ns2 %>% mutate(severe_new = lead(severe_new, 5))
+# simple linear regression
+lmopt <- lm(severe_new ~ 0 + infected_sm, nt)
+summary(lmopt)
+```
+The coefficient for the simple model is `r summary(lmopt)$coefficients[1]`. Let's include the new wave starting May 1st 2021:
+```{r newwave}
+lmout <- lm(severe_new ~ 0 + infected_sm:newwave, nt)
+summary(lmout)
+```
+Now we have two coefficients, one for the previous waves and one for the new wave, and both are significant. Before May 2021 the ratio between cases and severe cases was `r summary(lmout)$coefficients[1]` and starting May it's `r summary(lmout)$coefficients[2]`, a nice decrease.
+However, does it mean that the two values are significantly different from each other? Does introducing another parameter to fit helped us in significantly getting better results?
+One way to test it is to use the Likelihood Ratio Test (LRT)
+```{r lrt}
+library(lmtest)
+lrout <- lrtest(lmout, lmopt)
+print(lrout)
+```
+We added one degree of freedom and got a slightly better fit but it's not significant.
