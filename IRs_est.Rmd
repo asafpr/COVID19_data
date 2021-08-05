@@ -1,10 +1,13 @@
 ---
 title: "pop IRs"
-output: html_notebook
+output:
+  html_document:
+    df_print: paged
 ---
 
 ```{r load}
 library(tidyverse)
+library(kableExtra)
 
 death_ages <- read_csv(url("https://raw.githubusercontent.com/dancarmoz/israel_moh_covid_dashboard_data/master/deaths_ages_dists.csv"), skip = 1)
 severe_ages <- read_csv(url("https://raw.githubusercontent.com/dancarmoz/israel_moh_covid_dashboard_data/master/severe_ages_dists.csv"), skip = 1)
@@ -21,10 +24,23 @@ means$est <- as.numeric(gsub(" .*", "", means$interval))
 mests <- pivot_wider(means, id_cols = outcome, names_from = meanAge, values_from = est)
 
 p_hat <- t(death/sev)[,1]
-SE = sqrt(p_hat*(1-p_hat)/t(sev))
+SE = sqrt(p_hat*(1-p_hat)/t(sev)[,1])
 ci = .95
 ci_hi = p_hat + pnorm(ci+(1-ci)/2) * SE
 ci_lo = p_hat - pnorm(ci+(1-ci)/2) * SE
-cmp <- tibble( `Age group` = names(sev), `Paper F/S` = c(t(mests[3,-1]/mests[1,-1]), NA), `Israel F/S` = p_hat, `Israel CI low` = ci_lo, `Israel CI high` = ci_hi)
-knitr::kable(cmp)
+cmp <- tibble( `Age group` = names(sev), `Herrera-Esposito` = c(t(mests[3,-1]/mests[1,-1]), NA), `Israel` = p_hat, `Israel CI low` = ci_lo, `Israel CI high` = ci_hi)
+knitr::kable(cmp, digits = 3, padding = 13, caption = "Fatality to severe ratio") %>% column_spec (1:5,border_left = T, border_right = T) %>%
+kable_styling()
+cplt <- cmp %>% pivot_longer(names_to = "Source", values_to = "F/S ratio", cols = `Herrera-Esposito`:Israel)
+ggplot(cplt, aes(`Age group`, `F/S ratio`, color = Source, group = Source)) + geom_line() + geom_linerange(aes(ymin = `Israel CI low`, ymax = `Israel CI high`, color = "Israel")) + ggtitle("Fatality to severe ratio in Israel") + theme_minimal()
+```
+
+```{r est}
+est_cases = floor(t(sev)[1:9,1] / t(mests[1,2:10]/100) )
+ed_cases = floor(t(death)[1:9,1] / t(mests[3,2:10]/100))
+predt <- tibble(`Age group` = names(cases[1:9]), `Confirmed cases` = t(cases)[1:9,1], `Estimated from severe` = est_cases[,1], `Estimated from fatality` = ed_cases[,1])
+knitr::kable(predt, format.args = list(big.mark = ",")) %>% column_spec (1:4,border_left = T, border_right = T) %>%
+kable_styling()
+ppred <- pivot_longer(predt, names_to = "Data", values_to = "Cases", cols = -`Age group`)
+ggplot(ppred, aes(`Age group`, Cases, color = Data, group = Data)) + geom_line() + scale_y_log10() + ggtitle("Estimated number of incidence") + theme_minimal()
 ```
