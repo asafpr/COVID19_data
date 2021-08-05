@@ -1,0 +1,88 @@
+---
+title: "Severe cases lm"
+output: html_notebook
+---
+
+```{r load}
+library(tidyverse)
+library(RColorBrewer)
+library(readxl)
+library(lmtest)
+colors <- brewer.pal(4, "Dark2")
+
+# Read hospitalization data to infer number of severe cases from the DB
+hosp_data <- read_excel("corona_hospitalization_ver_00322.xlsx", col_names = c("Date", "Hospitalized_current", "Hospitalized_Female_perc", "Hospitalized_average_age", "Hospitalized_SD_age", "Ventilated_current", "Ventilated_Female_perc", "Ventilated_average_age", "Ventilated_SD_age", "Good_condition_current", "Good_condition_Female_perc", "Good_condition_average_age", "Good_condition_SD_age", "Fair_condition_current", "Fair_condition_Female_perc", "Fair_condition_average_age", "Fair_condition_SD_age", "Severe_condition_current", "Severe_condition_Female_perc", "Severe_condition_average_age", "Severe_condition_SD_age", "Severe_condition_total"), skip = 1, na = "<15")
+hosp_data$Date <- as.Date(hosp_data$Date)
+# Get the number of new severe per day (they use end of day) 
+hosp_data <- mutate(hosp_data, severe_new = Severe_condition_total - lag(Severe_condition_total, 1))
+
+# Read cases numbers
+cases <- read_csv("corona_age_and_gender_ver_00120.csv", na = "<15")
+cases$gender[cases$gender=="זכר"] = "M"
+cases$gender[cases$gender=="נקבה"] = "F"
+cases$gender[cases$gender=="לא ידוע"] = "U"
+cases <- replace_na(cases, list(weekly_tests_num = 7.5, weekly_cases = 7.5, weekly_deceased = 7.5))
+# Pivot the weekly cases of all genders to wider
+cases_p <- group_by(cases, first_week_day, age_group) %>% summarize(weekly_cases = sum(weekly_cases)) %>% ungroup() %>% pivot_wider(id_cols = first_week_day, names_from = age_group, values_from = weekly_cases)
+# Add new severe cases to the week
+hosp_data$first_week_day <- as.Date(cut(hosp_data$Date, c(cases_p$first_week_day, as.Date(cases_p$first_week_day[nrow(cases_p)]+7))))
+
+cases_p <- left_join(cases_p, select(hosp_data, first_week_day, severe_new) %>% group_by(first_week_day) %>% summarise_all(sum) %>% ungroup())
+cases_p$lag_severe <- lead(cases_p$severe_new, 1)
+cases_p$above_60 <- rowSums(cases_p[,11:15])
+cases_p$above_20 <- rowSums(cases_p[,3:15])
+cases_p$total_cases <- rowSums(cases_p[,2:15])
+cases_p$new_wave <- cases_p$first_week_day >= as.Date("2021-05-01")
+
+# Cases as proportion
+cases <- cases %>% mutate(`Age group` = case_when(age_group == "0-19" ~ "0-19", age_group == "20-24" ~ "20-39", age_group == "25-29" ~ "20-39",
+                                              age_group == "30-34" ~ "20-39", age_group == "35-39" ~ "20-39",
+                                              age_group == "40-44" ~ "40-59", age_group == "45-49" ~ "40-59",
+                                              age_group == "50-54" ~ "40-59", age_group == "55-59" ~ "40-59",
+                                              age_group == "60-64" ~ "60-79", age_group == "65-69" ~ "60-79",
+                                              age_group == "70-74" ~ "60-79", age_group == "75-79" ~ "60-79",
+                                              age_group == "80+" ~ "80+"
+                                              ))
+cases <- filter(cases, !is.na(`Age group`))
+cases_l <- group_by(cases, first_week_day, `Age group`) %>% summarize_at(vars(starts_with("weekly")), sum) %>% ungroup()
+cases_norm <- group_by(cases_l, first_week_day) %>% mutate_at(vars(starts_with("weekly")), function(x) x/sum(x)) %>% ungroup()
+cases_norm <- left_join(cases_norm, select(cases_p, first_week_day, total_cases, severe_new))
+
+```
+Let's have a look at the cases distribution:
+```{r dist}
+# Plot cases distribution
+ggplot(cases_norm, aes(first_week_day, weekly_cases, fill = `Age group`)) + geom_area() +
+  geom_line(aes(y = total_cases/max(total_cases), color="black")) +
+  geom_line(aes(y=severe_new/max(severe_new, na.rm = T), color = "green")) + scale_color_manual(name="", values = c("black", "blue"), labels = c("cases", "severe")) + theme_minimal() + xlab("Date")+ ylab("Cases distribution")
+
+
+
+```
+And now the linear model
+```{r lms}
+lm1 <- lm(lag_severe ~ 0 + total_cases, cases_p)
+lm6 <- lm(lag_severe ~ 0 + above_60, cases_p)
+lm6t <- lm(lag_severe ~ 0 + above_60 + total_cases, cases_p)
+lm6new <- lm(lag_severe ~ 0 + above_60:new_wave, cases_p)
+lmtnew <- lm(lag_severe ~ 0 + total_cases:new_wave, cases_p)
+lmall <- lm(lag_severe ~ 0 + above_60:new_wave + total_cases:new_wave, cases_p)
+
+
+ggplot(cases_p[!is.na(cases_p$lag_severe),], aes(first_week_day, lag_severe, color = "blue")) + geom_line(size=2) +
+  geom_line(aes(y = lm1$fitted.values, color = "all_cases")) +
+  geom_line(aes(y = lm6$fitted.values, color = "above60")) +
+#  geom_line(aes(y = lm6t$fitted.values, color = "above60_and_total")) +
+#  geom_line(aes(y = lmall$fitted.values, color = "complete")) +
+   theme_minimal()
+# above 60 vs above60 + total
+lrtest(lm6t, lm6)
+# total vs above60+total
+lrtest(lm6t, lm1)
+# total vs total:newwave
+lrtest(lmtnew,lm1)
+# above60 vs above60:newwave
+lrtest(lm6new, lm6)
+# both vs both with new
+lrtest(lmall, lm6t)
+```

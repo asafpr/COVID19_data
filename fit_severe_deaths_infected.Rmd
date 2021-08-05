@@ -24,7 +24,7 @@ dash <-
   )
 ns <- ns %>% filter(!is.na(severe_new))
 # Read hospitalization data for new severe cases
-hosp_data <- read_excel("corona_hospitalization_ver_00320.xlsx", col_names = c("Date", "Hospitalized_current", "Hospitalized_Female_perc", "Hospitalized_average_age", "Hospitalized_SD_age", "Ventilated_current", "Ventilated_Female_perc", "Ventilated_average_age", "Ventilated_SD_age", "Good_condition_current", "Good_condition_Female_perc", "Good_condition_average_age", "Good_condition_SD_age", "Fair_condition_current", "Fair_condition_Female_perc", "Fair_condition_average_age", "Fair_condition_SD_age", "Severe_condition_current", "Severe_condition_Female_perc", "Severe_condition_average_age", "Severe_condition_SD_age", "Severe_condition_total"), skip = 1, na = "<15")
+hosp_data <- read_excel("corona_hospitalization_ver_00326.xlsx", col_names = c("Date", "Hospitalized_current", "Hospitalized_Female_perc", "Hospitalized_average_age", "Hospitalized_SD_age", "Ventilated_current", "Ventilated_Female_perc", "Ventilated_average_age", "Ventilated_SD_age", "Good_condition_current", "Good_condition_Female_perc", "Good_condition_average_age", "Good_condition_SD_age", "Fair_condition_current", "Fair_condition_Female_perc", "Fair_condition_average_age", "Fair_condition_SD_age", "Severe_condition_current", "Severe_condition_Female_perc", "Severe_condition_average_age", "Severe_condition_SD_age", "Severe_condition_total"), skip = 1, na = "<15")
 hosp_data$Date <- as.Date(hosp_data$Date)
 
 hosp_data <- mutate(hosp_data, severe_new = Severe_condition_total - lag(Severe_condition_total, 1))
@@ -188,7 +188,7 @@ i=5
 
 ```{r ages}
 # Read cases numbers
-cases <- read_csv("corona_age_and_gender_ver_00118.csv", na = "<15")
+cases <- read_csv("corona_age_and_gender_ver_00120.csv", na = "<15")
 cases$gender[cases$gender=="זכר"] = "M"
 cases$gender[cases$gender=="נקבה"] = "F"
 cases$gender[cases$gender=="לא ידוע"] = "U"
@@ -282,4 +282,39 @@ for (n in 1:nrow(sev_weekly)){
   }
 }
 sev_weekly <- sev_weekly %>% mutate(OR = ors, pvals = pvs)
+```
+
+
+```{r vax}
+yuvstat <- read_csv(url("https://raw.githubusercontent.com/yuval-harpaz/covid-19-israel-matlab/master/data/Israel/delta.csv"))
+yuvstat$date <- as.Date(yuvstat$date, "%m/%d/%y%y")
+
+
+# Read the cases stratified into vax and unvax
+vcases <- read_csv("cases-among-vaccinated-96.csv", na = "<5") %>% replace_na(list(positive_above_20_days_after_2nd_dose = 1,
+                                                                              Sum_positive_without_vaccination = 1)) %>% 
+  mutate(first_week_day = as.Date(substr(Week,1,10)))
+vc_under60 <- group_by(vcases, first_week_day) %>% filter(Age_group %in% c("0-19", "20-29", "30-39", "40-49", "50-59")) %>% summarize(vaxed = sum(positive_above_20_days_after_2nd_dose), unvaxed = sum(Sum_positive_without_vaccination))
+vc_above60 <- group_by(vcases, first_week_day) %>% filter(Age_group %in% c("60-69", "70-79", "80-89", "90+")) %>% summarize(vaxed = sum(positive_above_20_days_after_2nd_dose), unvaxed = sum(Sum_positive_without_vaccination))
+yuvstat$first_week_day <- as.Date(cut(yuvstat$date, c(unique(vcases$first_week_day), as.Date(vcases$first_week_day[nrow(vcases)]+7),  as.Date(vcases$first_week_day[nrow(vcases)]+14))))
+
+# deaths for vax and nonvax
+dlead = 10
+slead = 5
+yd <- yuvstat %>% select(first_week_day) #, `deaths no vacc`, `deaths in process`, `deaths vacc`, `cases no vacc`, `cases in process`, `cases vacc`)
+yd$deathvax <- lead(yuvstat$`deaths vacc`, dlead)
+yd$deathvax60 <- lead(yuvstat$`deaths vacc 60+`, dlead)
+yd$deathunvax60 <- lead(yuvstat$`deaths 60+` - yuvstat$`deaths vacc 60+`, dlead)
+yd$deathinp <- lead(yuvstat$`deaths in process`, dlead)
+yd$deathnov <- lead(yuvstat$`deaths no vacc`, dlead)
+yd$severevax <- lead(yuvstat$`severe vacc`, slead)
+yd$severevax60 <- lead(yuvstat$`severe vacc 60+`, slead)
+yd$severeunvax60 <- lead(yuvstat$`severe 60+` - yuvstat$`severe vacc 60+`, slead)
+yd$severeinp <- lead(yuvstat$`severe in process`, slead)
+yd$severenov <- lead(yuvstat$`severe no vacc`, slead)
+yd <- group_by(yd, first_week_day) %>% summarise_all(sum)
+
+lmvax <- lm(deathvax ~ 0 + `cases vacc`, yd)
+lmpro <- lm(deathinp ~ 0 + `cases in process`, yd)
+lmunv <- lm(deathnov ~ 0 + `cases no vacc`, yd)
 ```

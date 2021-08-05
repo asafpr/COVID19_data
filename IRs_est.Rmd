@@ -1,0 +1,30 @@
+---
+title: "pop IRs"
+output: html_notebook
+---
+
+```{r load}
+library(tidyverse)
+
+death_ages <- read_csv(url("https://raw.githubusercontent.com/dancarmoz/israel_moh_covid_dashboard_data/master/deaths_ages_dists.csv"), skip = 1)
+severe_ages <- read_csv(url("https://raw.githubusercontent.com/dancarmoz/israel_moh_covid_dashboard_data/master/severe_ages_dists.csv"), skip = 1)
+vent_ages <- read_csv(url("https://raw.githubusercontent.com/dancarmoz/israel_moh_covid_dashboard_data/master/ventilated_ages_dists.csv"), skip = 1)
+cases_ages <- read_csv(url("https://raw.githubusercontent.com/dancarmoz/israel_moh_covid_dashboard_data/master/ages_dists.csv"), skip = 1)
+
+adate = 717
+sev <- severe_ages[adate, 2:11]
+vent <- vent_ages[adate, 2:11]
+death <- death_ages[adate, 2:11]
+cases <- cases_ages[adate, 2:11]
+means <- read_csv(url("https://raw.githubusercontent.com/dherrera1911/estimate_covid_severity/master/estimate_severity/data/processed_data/3_serology_fits_corrected_tidy.csv"))
+means$est <- as.numeric(gsub(" .*", "", means$interval))
+mests <- pivot_wider(means, id_cols = outcome, names_from = meanAge, values_from = est)
+
+p_hat <- t(death/sev)[,1]
+SE = sqrt(p_hat*(1-p_hat)/t(sev))
+ci = .95
+ci_hi = p_hat + pnorm(ci+(1-ci)/2) * SE
+ci_lo = p_hat - pnorm(ci+(1-ci)/2) * SE
+cmp <- tibble( `Age group` = names(sev), `Paper F/S` = c(t(mests[3,-1]/mests[1,-1]), NA), `Israel F/S` = p_hat, `Israel CI low` = ci_lo, `Israel CI high` = ci_hi)
+knitr::kable(cmp)
+```
